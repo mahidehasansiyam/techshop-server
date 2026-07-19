@@ -178,13 +178,44 @@ const orderSchema = new Schema<IOrder>(
 
 const Order = mongoose.model<IOrder>("Order", orderSchema);
 
+// --- Cart Schema ---
+interface ICartItem {
+  productId: mongoose.Types.ObjectId;
+  quantity: number;
+}
+
+interface ICart extends Document {
+  userId: string;
+  items: ICartItem[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const cartItemSchema = new Schema<ICartItem>(
+  {
+    productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
+    quantity: { type: Number, required: true, min: 1 },
+  },
+  { _id: false }
+);
+
+const cartSchema = new Schema<ICart>(
+  {
+    userId: { type: String, required: true, unique: true },
+    items: [cartItemSchema],
+  },
+  { timestamps: true }
+);
+
+const Cart = mongoose.model<ICart>("Cart", cartSchema);
+
 // ============================================================
 // HEALTH CHECK ROUTE
 // ============================================================
 app.get("/", (req, res) => {
   res.json({
     message: "✅ TechShop API is running",
-    models: ["Product", "Category", "Brand", "Order"],
+    models: ["Product", "Category", "Brand", "Order", "Cart"],
     phase: "Phase 1 Complete",
   });
 });
@@ -194,6 +225,32 @@ app.get("/", (req, res) => {
 // ============================================================
 
 // --- CATEGORY ROUTES ---
+
+// PATCH /api/categories/:id - Update a category
+app.patch("/api/categories/:id", async (req, res) => {
+  try {
+    const { name, slug, image } = req.body;
+    if (!name && !slug && !image) {
+      return res.status(400).json({ success: false, message: "At least one field (name, slug, image) is required" });
+    }
+    const updates: Record<string, unknown> = {};
+    if (name) updates.name = name;
+    if (slug) updates.slug = slug;
+    if (image !== undefined) updates.image = image;
+    const category = await Category.findByIdAndUpdate(
+      param(req.params, "id"),
+      { $set: updates },
+      { new: true, runValidators: true }
+    );
+    if (!category) return res.status(404).json({ success: false, message: "Category not found" });
+    res.json({ success: true, data: category });
+  } catch (error: any) {
+    if (error.code === 11000) {
+      return res.status(409).json({ success: false, message: "A category with this slug already exists" });
+    }
+    res.status(500).json({ success: false, message: "Failed to update category" });
+  }
+});
 
 // GET /api/categories - Get all categories
 app.get("/api/categories", async (req, res) => {
@@ -234,6 +291,32 @@ app.delete("/api/categories/:id", async (req, res) => {
 });
 
 // --- BRAND ROUTES ---
+
+// PATCH /api/brands/:id - Update a brand
+app.patch("/api/brands/:id", async (req, res) => {
+  try {
+    const { name, slug, logo } = req.body;
+    if (!name && !slug && !logo) {
+      return res.status(400).json({ success: false, message: "At least one field (name, slug, logo) is required" });
+    }
+    const updates: Record<string, unknown> = {};
+    if (name) updates.name = name;
+    if (slug) updates.slug = slug;
+    if (logo !== undefined) updates.logo = logo;
+    const brand = await Brand.findByIdAndUpdate(
+      param(req.params, "id"),
+      { $set: updates },
+      { new: true, runValidators: true }
+    );
+    if (!brand) return res.status(404).json({ success: false, message: "Brand not found" });
+    res.json({ success: true, data: brand });
+  } catch (error: any) {
+    if (error.code === 11000) {
+      return res.status(409).json({ success: false, message: "A brand with this slug already exists" });
+    }
+    res.status(500).json({ success: false, message: "Failed to update brand" });
+  }
+});
 
 // GET /api/brands - Get all brands
 app.get("/api/brands", async (req, res) => {
@@ -286,8 +369,11 @@ app.get("/api/products", async (req, res) => {
     if (brand) query.brand = brand;
     if (status) query.status = status;
 
-    const pageNum = parseInt(page as string);
-    const limitNum = parseInt(limit as string);
+    let pageNum = parseInt(page as string);
+    let limitNum = parseInt(limit as string);
+    if (isNaN(pageNum) || pageNum < 1) pageNum = 1;
+    if (isNaN(limitNum) || limitNum < 1) limitNum = 20;
+    if (limitNum > 100) limitNum = 100;
     const skip = (pageNum - 1) * limitNum;
 
     const [products, total] = await Promise.all([
@@ -340,9 +426,19 @@ app.post("/api/products", async (req, res) => {
 // PATCH /api/products/:id - Update a product
 app.patch("/api/products/:id", async (req, res) => {
   try {
+    const allowedFields = ["name", "description", "price", "compareAtPrice", "sku", "stock", "images", "category", "brand", "status"];
+    const updates: Record<string, unknown> = {};
+    for (const key of allowedFields) {
+      if (req.body[key] !== undefined) {
+        updates[key] = req.body[key];
+      }
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: "No valid fields to update" });
+    }
     const product = await Product.findByIdAndUpdate(
       param(req.params, "id"),
-      { $set: req.body },
+      { $set: updates },
       { new: true, runValidators: true }
     );
     if (!product) return res.status(404).json({ success: false, message: "Product not found" });
@@ -409,8 +505,11 @@ app.get("/api/orders", async (req, res) => {
     const query: Record<string, any> = {};
     if (status) query.orderStatus = status;
 
-    const pageNum = parseInt(page as string);
-    const limitNum = parseInt(limit as string);
+    let pageNum = parseInt(page as string);
+    let limitNum = parseInt(limit as string);
+    if (isNaN(pageNum) || pageNum < 1) pageNum = 1;
+    if (isNaN(limitNum) || limitNum < 1) limitNum = 20;
+    if (limitNum > 100) limitNum = 100;
     const skip = (pageNum - 1) * limitNum;
 
     const [orders, total] = await Promise.all([
@@ -485,6 +584,130 @@ app.patch("/api/orders/:id/status", async (req, res) => {
     res.json({ success: true, data: order });
   } catch (error) {
     res.status(500).json({ success: false, message: "Failed to update order status" });
+  }
+});
+
+// ============================================================
+// CART ROUTES
+// ============================================================
+
+// GET /api/cart/:userId - Get user's cart (populated with product details)
+app.get("/api/cart/:userId", async (req, res) => {
+  try {
+    let cart = await Cart.findOne({ userId: param(req.params, "userId") })
+      .populate("items.productId", "name price images stock status category");
+
+    if (!cart) {
+      cart = await Cart.create({ userId: req.params.userId, items: [] });
+    }
+
+    res.json({ success: true, data: cart });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to fetch cart" });
+  }
+});
+
+// POST /api/cart/add - Add item to cart (or increment quantity)
+app.post("/api/cart/add", async (req, res) => {
+  try {
+    const { userId, productId, quantity = 1 } = req.body;
+    if (!userId || !productId) {
+      return res.status(400).json({ success: false, message: "userId and productId are required" });
+    }
+
+    let cart = await Cart.findOne({ userId });
+    if (!cart) {
+      cart = await Cart.create({ userId, items: [{ productId, quantity }] });
+    } else {
+      const existing = cart.items.find(
+        (i) => i.productId.toString() === productId
+      );
+      if (existing) {
+        existing.quantity += quantity;
+      } else {
+        cart.items.push({ productId, quantity });
+      }
+      await cart.save();
+    }
+
+    await cart.populate("items.productId", "name price images stock status category");
+    res.json({ success: true, data: cart });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to add to cart" });
+  }
+});
+
+// PATCH /api/cart/update - Update item quantity
+app.patch("/api/cart/update", async (req, res) => {
+  try {
+    const { userId, productId, quantity } = req.body;
+    if (!userId || !productId || quantity == null) {
+      return res.status(400).json({ success: false, message: "userId, productId, and quantity are required" });
+    }
+
+    const cart = await Cart.findOne({ userId });
+    if (!cart) {
+      return res.status(404).json({ success: false, message: "Cart not found" });
+    }
+
+    const item = cart.items.find((i) => i.productId.toString() === productId);
+    if (!item) {
+      return res.status(404).json({ success: false, message: "Item not found in cart" });
+    }
+
+    if (quantity < 1) {
+      cart.items = cart.items.filter(
+        (i) => i.productId.toString() !== productId
+      );
+    } else {
+      item.quantity = quantity;
+    }
+
+    await cart.save();
+    await cart.populate("items.productId", "name price images stock status category");
+    res.json({ success: true, data: cart });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to update cart item" });
+  }
+});
+
+// POST /api/cart/remove - Remove item from cart
+app.post("/api/cart/remove", async (req, res) => {
+  try {
+    const { userId, productId } = req.body;
+    if (!userId || !productId) {
+      return res.status(400).json({ success: false, message: "userId and productId are required" });
+    }
+
+    const cart = await Cart.findOne({ userId });
+    if (!cart) {
+      return res.status(404).json({ success: false, message: "Cart not found" });
+    }
+
+    cart.items = cart.items.filter(
+      (i) => i.productId.toString() !== productId
+    );
+    await cart.save();
+    await cart.populate("items.productId", "name price images stock status category");
+    res.json({ success: true, data: cart });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to remove item from cart" });
+  }
+});
+
+// DELETE /api/cart/:userId - Clear cart
+app.delete("/api/cart/:userId", async (req, res) => {
+  try {
+    const cart = await Cart.findOne({ userId: param(req.params, "userId") });
+    if (!cart) {
+      return res.status(404).json({ success: false, message: "Cart not found" });
+    }
+
+    cart.items = [];
+    await cart.save();
+    res.json({ success: true, message: "Cart cleared", data: cart });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to clear cart" });
   }
 });
 
