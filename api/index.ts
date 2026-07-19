@@ -1,5 +1,5 @@
 import express from "express";
-import mongoose, { Schema, Document } from "mongoose";
+import mongoose, { Schema, type Document } from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
 import helmet from "helmet";
@@ -9,11 +9,18 @@ import cookieParser from "cookie-parser";
 dotenv.config();
 
 const app = express();
-app.use(cors());
+const allowedOrigins = process.env.CORS_ORIGIN?.split(",") || ["http://localhost:3000"];
+app.use(cors({ origin: allowedOrigins }));
 app.use(helmet());
 app.use(morgan("dev"));
 app.use(express.json());
 app.use(cookieParser());
+
+function param(params: Record<string, string | undefined>, key: string): string {
+  const val = params[key];
+  if (!val) throw new Error(`Missing route param: ${key}`);
+  return val;
+}
 
 // ============================================================
 // PHASE 1: MONGOOSE SCHEMAS & MODELS
@@ -210,7 +217,7 @@ app.post("/api/categories", async (req, res) => {
 // DELETE /api/categories/:id - Delete a category
 app.delete("/api/categories/:id", async (req, res) => {
   try {
-    const category = await Category.findByIdAndDelete(req.params.id);
+    const category = await Category.findByIdAndDelete(param(req.params, "id"));
     if (!category) return res.status(404).json({ success: false, message: "Category not found" });
     res.json({ success: true, message: "Category deleted" });
   } catch (error) {
@@ -250,7 +257,7 @@ app.post("/api/brands", async (req, res) => {
 // DELETE /api/brands/:id - Delete a brand
 app.delete("/api/brands/:id", async (req, res) => {
   try {
-    const brand = await Brand.findByIdAndDelete(req.params.id);
+    const brand = await Brand.findByIdAndDelete(param(req.params, "id"));
     if (!brand) return res.status(404).json({ success: false, message: "Brand not found" });
     res.json({ success: true, message: "Brand deleted" });
   } catch (error) {
@@ -298,7 +305,7 @@ app.get("/api/products", async (req, res) => {
 // GET /api/products/:id - Get a single product
 app.get("/api/products/:id", async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findById(param(req.params, "id"));
     if (!product) return res.status(404).json({ success: false, message: "Product not found" });
     res.json({ success: true, data: product });
   } catch (error) {
@@ -326,7 +333,7 @@ app.post("/api/products", async (req, res) => {
 app.patch("/api/products/:id", async (req, res) => {
   try {
     const product = await Product.findByIdAndUpdate(
-      req.params.id,
+      param(req.params, "id"),
       { $set: req.body },
       { new: true, runValidators: true }
     );
@@ -340,7 +347,7 @@ app.patch("/api/products/:id", async (req, res) => {
 // DELETE /api/products/:id - Delete a product
 app.delete("/api/products/:id", async (req, res) => {
   try {
-    const product = await Product.findByIdAndDelete(req.params.id);
+    const product = await Product.findByIdAndDelete(param(req.params, "id"));
     if (!product) return res.status(404).json({ success: false, message: "Product not found" });
     res.json({ success: true, message: "Product deleted successfully" });
   } catch (error) {
@@ -421,7 +428,7 @@ app.get("/api/orders", async (req, res) => {
 // GET /api/orders/user/:userId - Get orders for a specific user
 app.get("/api/orders/user/:userId", async (req, res) => {
   try {
-    const orders = await Order.find({ userId: req.params.userId }).sort({
+    const orders = await Order.find({ userId: param(req.params, "userId") }).sort({
       createdAt: -1,
     });
     res.json({ success: true, data: orders });
@@ -433,7 +440,7 @@ app.get("/api/orders/user/:userId", async (req, res) => {
 // GET /api/orders/:id - Get a single order by ID
 app.get("/api/orders/:id", async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findById(param(req.params, "id"));
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
     res.json({ success: true, data: order });
   } catch (error) {
@@ -461,7 +468,7 @@ app.patch("/api/orders/:id/status", async (req, res) => {
     if (paymentStatus) updateFields.paymentStatus = paymentStatus;
 
     const order = await Order.findByIdAndUpdate(
-      req.params.id,
+      param(req.params, "id"),
       { $set: updateFields },
       { new: true }
     );
