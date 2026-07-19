@@ -495,27 +495,41 @@ app.get("/api/users", async (req, res) => {
 });
 
 // ============================================================
-// SERVER STARTUP
+// SERVER STARTUP / DB CONNECTION
 // ============================================================
-const PORT = process.env.PORT || 9000;
 
-async function startServer() {
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
-  });
-
+// Connect to MongoDB
+const connectDB = async () => {
   try {
     const mongoUri = process.env.DATABASE_URL;
     if (!mongoUri) {
       throw new Error("DATABASE_URL environment variable is not defined");
     }
+
+    // In serverless environments, connection should be cached
+    if (mongoose.connection.readyState === 1) {
+      return mongoose.connection;
+    }
+
     await mongoose.connect(mongoUri);
     console.log("✅ MongoDB Connected");
     console.log("📦 Models registered: Product, Category, Brand, Order");
   } catch (error) {
     console.error("❌ Database Connection Failed:", error);
-    console.log("⚠️  Note: The server is still running, but database operations will fail until MongoDB is started.");
+    console.log("⚠️  Note: Database operations will fail until MongoDB is started.");
   }
+};
+
+// Initialize DB connection
+connectDB();
+
+const PORT = process.env.PORT || 9000;
+
+if (process.env.NODE_ENV !== "production") {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+  });
 }
 
-startServer();
+// Export the Express API for serverless environments (like Vercel)
+export default app;
