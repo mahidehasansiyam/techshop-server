@@ -9,12 +9,20 @@ import cookieParser from "cookie-parser";
 dotenv.config();
 
 const app = express();
-const allowedOrigins = process.env.CORS_ORIGIN?.split(",") || ["http://localhost:3000"];
+const allowedOrigins = process.env.NEXT_PUBLIC_API_URL?.split(",") || [];
 app.use(cors({ origin: allowedOrigins }));
 app.use(helmet());
 app.use(morgan("dev"));
 app.use(express.json());
 app.use(cookieParser());
+
+// Wait for MongoDB connection before processing any requests
+app.use(async (req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    try { await connectDB(); } catch { return res.status(503).json({ success: false, message: "Database not connected" }); }
+  }
+  next();
+});
 
 function param(params: Record<string, string | undefined>, key: string): string {
   const val = params[key];
@@ -526,9 +534,6 @@ const connectDB = async () => {
     console.log("⚠️  Note: Database operations will fail until MongoDB is started.");
   }
 };
-
-// Initialize DB connection
-connectDB();
 
 const PORT = process.env.PORT || 9000;
 
