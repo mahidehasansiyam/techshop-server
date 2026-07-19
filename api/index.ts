@@ -526,7 +526,7 @@ const connectDB = async () => {
       return mongoose.connection;
     }
 
-    await mongoose.connect(mongoUri);
+    await mongoose.connect(mongoUri, { dbName: "techshop" });
     console.log("✅ MongoDB Connected");
     console.log("📦 Models registered: Product, Category, Brand, Order");
   } catch (error) {
